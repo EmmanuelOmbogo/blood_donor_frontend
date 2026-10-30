@@ -548,6 +548,9 @@ function DonorsPage({ search, user, onNotice, createTrigger }: { search: string;
   const [areaFilter, setAreaFilter] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [candidates, setCandidates] = useState<Pick<Donor, "id" | "fullName" | "phoneNumber" | "location" | "bloodGroup">[]>([]);
+  const [candidateLoading, setCandidateLoading] = useState(false);
+  const [candidateError, setCandidateError] = useState("");
   const canRegister = user.role === "admin" || user.role === "drive_staff";
 
   const load = useCallback(() => {
@@ -656,6 +659,27 @@ function RequestsPage({ search, onNotice, createTrigger }: { search: string; onN
     if (createTrigger > 0) setCreateOpen(true);
   }, [createTrigger]);
 
+  const loadCandidates = async (bloodGroup: string, area: string) => {
+    if (!bloodGroup) { setCandidates([]); return; }
+    setCandidateLoading(true);
+    setCandidateError("");
+    try {
+      const result = await api.requestCandidates({ bloodGroup, area });
+      setCandidates(result.results);
+    } catch (reason) {
+      setCandidateError(reason instanceof Error ? reason.message : "Donor matches could not be loaded.");
+    } finally {
+      setCandidateLoading(false);
+    }
+  };
+
+  const fillFromCandidate = (event: React.ChangeEvent<HTMLSelectElement>, form: HTMLFormElement) => {
+    const donor = candidates.find((candidate) => candidate.id === event.target.value);
+    if (!donor) return;
+    (form.elements.namedItem("contactName") as HTMLInputElement).value = donor.fullName;
+    (form.elements.namedItem("contactPhone") as HTMLInputElement).value = donor.phoneNumber;
+  };
+
   const createRequest = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSaving(true);
@@ -724,15 +748,16 @@ function RequestsPage({ search, onNotice, createTrigger }: { search: string; onN
         <form className="modal-form" onSubmit={createRequest}>
           <div className="form-grid">
             <Field label="Hospital / facility" required><input name="hospitalName" required placeholder="Facility name" /></Field>
-            <Field label="Request contact" required><input name="contactName" required placeholder="Contact person's name" /></Field>
-            <Field label="Contact phone" required><input name="contactPhone" type="tel" required placeholder="+254 7XX XXX XXX" /></Field>
-            <Field label="Blood group needed" required><select name="bloodGroup" required defaultValue=""><option value="" disabled>Select group</option>{bloodGroups.map((group) => <option key={group}>{group}</option>)}</select></Field>
+            <Field label="Request contact" required><input name="contactName" required placeholder="Select a matched donor below or enter contact" /></Field>
+            <Field label="Contact phone" required><input name="contactPhone" type="tel" required placeholder="Filled from selected donor" /></Field>
+            <Field label="Blood group needed" required><select name="bloodGroup" required defaultValue="" onChange={(event) => { const form = event.currentTarget.form; void loadCandidates(event.target.value, String(new FormData(form!).get("area") || "")); }}><option value="" disabled>Select group</option>{bloodGroups.map((group) => <option key={group}>{group}</option>)}</select></Field>
             <Field label="Units needed" required><input name="unitsNeeded" type="number" min="1" step="1" required placeholder="e.g. 2" /></Field>
-            <Field label="Area" required><input name="area" required placeholder="Town or neighbourhood" /></Field>
+            <Field label="Area" required><input name="area" required placeholder="Town or neighbourhood" onChange={(event) => { const group = String(new FormData(event.currentTarget.form!).get("bloodGroup") || ""); void loadCandidates(group, event.target.value); }} /></Field>
             <Field label="Urgency" required><select name="urgency" defaultValue="urgent"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="critical">Critical</option></select></Field>
             <Field label="Needed by" required><input name="neededBy" type="datetime-local" required /></Field>
             <Field label="Additional notes"><textarea name="notes" rows={3} placeholder="Optional details for the care team" /></Field>
           </div>
+          <div className="candidate-picker"><strong>Compatible registered donors</strong>{candidateLoading ? <span>Finding eligible donors…</span> : candidateError ? <span>{candidateError}</span> : candidates.length ? <select defaultValue="" aria-label="Select a matched donor to fill contact details" onChange={(event) => fillFromCandidate(event, event.currentTarget.form!)}><option value="" disabled>Select a donor to fill name and phone</option>{candidates.map((donor) => <option key={donor.id} value={donor.id}>{donor.fullName} · {donor.bloodGroup} · {donor.location}</option>)}</select> : <span>Select a blood group to find compatible donors. No donor message is sent until you dispatch alerts.</span>}</div>
           <div className="sms-note modal-sms-note"><Bell size={16} /><span>Creating the request finds compatible donors. SMS is sent only when you review the match list and select “Send SMS alerts”.</span></div>
           <div className="modal-actions"><button className="button button-quiet" type="button" onClick={() => setCreateOpen(false)}>Cancel</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? <LoaderCircle className="spin" size={17} /> : <Plus size={17} />} Create request</button></div>
         </form>

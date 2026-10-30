@@ -10,6 +10,13 @@ fall back to sample donors, requests, dashboard totals, or drive records.
    base URL (the default is `http://localhost:8000/api`).
 3. Run `npm install`, then `npm run dev`.
 
+For real SMS delivery, configure `AT_USERNAME`, `AT_API_KEY`, `AT_SENDER_ID`,
+and `AT_ENV` in `blood_donor_backend/.env` (start from its `.env.example`) and
+restart Django. Use Africa's Talking sandbox credentials for development and
+production credentials plus an approved sender ID for live delivery. Configure
+the provider's incoming SMS callback to `POST /api/sms/incoming` so donor
+`YES`, `NO`, and `STOP` replies update their matches and opt-out state.
+
 The API must allow the frontend origin through CORS. Authentication uses a
 Bearer access token held in browser local storage. Use HTTPS outside local
 development. The API should issue short-lived tokens and enforce permissions
@@ -47,6 +54,7 @@ sign-in. The example environment enables it for local development.
 | GET | `/donors?search=&bloodGroup=&area=&page=` | Search and filter registered donors. |
 | POST | `/donors` | Register a donor after clear screening and recorded SMS consent. |
 | GET | `/requests?search=&status=&page=` | List requests and matched donor/SMS states. |
+| GET | `/requests?bloodGroup=&area=` | Return eligible compatible donor contact candidates for request form autofill. |
 | POST | `/requests` | Create request and calculate eligible compatible matches; do not send SMS yet. |
 | POST | `/requests/{id}/alerts` | Dispatch SMS alerts to the saved matched donors. |
 | PATCH | `/requests/{id}/status` | Body `{ status }`; update request lifecycle. |

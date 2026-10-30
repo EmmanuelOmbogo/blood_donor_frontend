@@ -214,6 +214,10 @@ export const api = {
     return request<PageResult<BloodRequest>>(`/requests${queryString(params)}`);
   },
 
+  requestCandidates(params: { bloodGroup: string; area?: string }): Promise<{ results: Pick<Donor, "id" | "fullName" | "phoneNumber" | "location" | "bloodGroup">[]; count: number }> {
+    return request(`/requests${queryString(params)}`);
+  },
+
   createRequest(input: Omit<BloodRequest, "id" | "reference" | "unitsFulfilled" | "status" | "matchedDonors" | "smsDispatchedAt" | "createdAt">): Promise<BloodRequest> {
     return request<BloodRequest>("/requests", {
       method: "POST",

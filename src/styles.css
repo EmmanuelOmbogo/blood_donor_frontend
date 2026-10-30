@@ -123,6 +123,9 @@ input, select, textarea { color: var(--ink); }
 .workflow-step strong { font-size: 10px; }
 .workflow-step p { margin: 3px 0 0; color: #979d9a; font-size: 9px; }
 .sms-note { display: flex; gap: 8px; align-items: flex-start; margin-top: 11px; padding: 10px; border-radius: 10px; background: #f8f4eb; color: #806728; font-size: 9px; line-height: 1.5; }
+.candidate-picker { display: grid; gap: 7px; margin-top: 12px; padding: 12px; border: 1px solid #e9e5df; border-radius: 10px; color: #6f7480; font-size: 11px; }
+.candidate-picker strong { color: #272b31; font-size: 12px; }
+.candidate-picker select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #ddd8d0; border-radius: 8px; background: #fff; color: #30343a; }
 .sms-note svg { flex: 0 0 auto; }
 .recent-panel { margin-top: 15px; padding: 19px 20px 8px; }
 .recent-panel .panel-heading { margin-bottom: 14px; }
