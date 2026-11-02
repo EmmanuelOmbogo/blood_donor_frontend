@@ -23,6 +23,7 @@ import {
   SlidersHorizontal,
   UsersRound,
   X,
+  MessageSquareText,
 } from "lucide-react";
 import { api, ApiRequestError, demoAuth } from "./api";
 import type {
@@ -32,6 +33,7 @@ import type {
   DonationDrive,
   Donor,
   RequestStatus,
+  NotificationItem,
   User,
 } from "./types";
 
@@ -63,6 +65,29 @@ const pageDetails: Record<Page, { title: string; description: string }> = {
   },
 };
 
+const navByRole: Record<User["role"], { key: Page; label: string; icon: typeof LayoutDashboard }[]> = {
+  admin: [
+    { key: "overview", label: "Overview", icon: LayoutDashboard },
+    { key: "donors", label: "Donor directory", icon: UsersRound },
+    { key: "requests", label: "Blood requests", icon: FileBarChart2 },
+    { key: "drives", label: "Donation drives", icon: CalendarDays },
+    { key: "reports", label: "Reports", icon: Activity },
+  ],
+  hospital_staff: [
+    { key: "overview", label: "Hospital overview", icon: LayoutDashboard },
+    { key: "requests", label: "My blood requests", icon: FileBarChart2 },
+    { key: "donors", label: "Donor directory", icon: UsersRound },
+    { key: "reports", label: "Reports", icon: Activity },
+  ],
+  drive_staff: [
+    { key: "overview", label: "Drive overview", icon: LayoutDashboard },
+    { key: "donors", label: "Donor register", icon: UsersRound },
+    { key: "drives", label: "Donation drives", icon: CalendarDays },
+    { key: "requests", label: "Request tracking", icon: FileBarChart2 },
+    { key: "reports", label: "Reports", icon: Activity },
+  ],
+};
+
 function formatDate(value: string | null): string {
   if (!value) return "Not recorded";
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
@@ -87,6 +112,8 @@ function App() {
   const [globalSearch, setGlobalSearch] = useState("");
   const [requestCreateTrigger, setRequestCreateTrigger] = useState(0);
   const [donorCreateTrigger, setDonorCreateTrigger] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   useEffect(() => {
     if (!api.hasToken()) return;
@@ -98,6 +125,17 @@ function App() {
       })
       .finally(() => setAuthLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!user || user.demoMode) return;
+    let active = true;
+    const refreshUnread = () => api.notifications().then((summary) => {
+      if (active) setUnreadNotifications(summary.unreadCount);
+    }).catch(() => undefined);
+    void refreshUnread();
+    const timer = window.setInterval(refreshUnread, 30000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [user]);
 
   const showNotice = useCallback((value: Notice) => {
     setNotice(value);
@@ -159,6 +197,8 @@ function App() {
           search={globalSearch}
           onSearch={setGlobalSearch}
           onMenu={() => setSidebarOpen(true)}
+          onOpenNotifications={() => setNotificationsOpen(true)}
+          unreadNotifications={unreadNotifications}
         />
         {user.demoMode && (
           <div className="demo-banner" role="status">
@@ -170,6 +210,7 @@ function App() {
           <PageHeader
             page={page}
             canRegisterDonor={user.role === "admin" || user.role === "drive_staff"}
+            canCreateRequest={user.role === "admin" || user.role === "hospital_staff"}
           onCreateRequest={() => {
             setPage("requests");
             setRequestCreateTrigger((value) => value + 1);
@@ -186,10 +227,16 @@ function App() {
             onNotice={showNotice}
             requestCreateTrigger={requestCreateTrigger}
             donorCreateTrigger={donorCreateTrigger}
+            onNavigate={setPage}
           />
         </section>
       </main>
       {notice && <Toast notice={notice} onClose={() => setNotice(null)} />}
+      {notificationsOpen && <NotificationsPanel user={user} onClose={() => setNotificationsOpen(false)} onNavigateToRequests={() => {
+        setPage("requests");
+        setSidebarOpen(false);
+        setNotificationsOpen(false);
+      }} onUnreadChange={setUnreadNotifications} />}
     </div>
   );
 }
@@ -282,7 +329,7 @@ function LoginScreen({
             <section className="demo-accounts" aria-label="Development demo accounts">
               <div className="demo-accounts-heading">
                 <span>DEVELOPMENT-ONLY DEMO ACCOUNTS</span>
-                <p>These work locally when the API is offline. They do not create donor or request records.</p>
+                <p>Use these for a local demo if the API is offline or these accounts are not seeded in its database. Demo sessions do not create live records.</p>
               </div>
               {demoAuth.accounts.map((account) => (
                 <div className="demo-account" key={account.email}>
@@ -339,13 +386,7 @@ function Sidebar({
   onLogout: () => void;
   mobileOpen: boolean;
 }) {
-  const navItems: { key: Page; label: string; icon: typeof LayoutDashboard }[] = [
-    { key: "overview", label: "Overview", icon: LayoutDashboard },
-    { key: "donors", label: "Donors", icon: UsersRound },
-    { key: "requests", label: "Blood requests", icon: FileBarChart2 },
-    { key: "drives", label: "Donation drives", icon: CalendarDays },
-    { key: "reports", label: "Reports", icon: Activity },
-  ];
+  const navItems = navByRole[user.role];
 
   return (
     <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}>
@@ -390,11 +431,15 @@ function Topbar({
   search,
   onSearch,
   onMenu,
+  onOpenNotifications,
+  unreadNotifications,
 }: {
   user: User;
   search: string;
   onSearch: (value: string) => void;
   onMenu: () => void;
+  onOpenNotifications: () => void;
+  unreadNotifications: number;
 }) {
   const today = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date());
 
@@ -407,25 +452,85 @@ function Topbar({
         <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search donors, requests…" aria-label="Search current records" />
         {search && <button className="icon-button search-clear" onClick={() => onSearch("")} aria-label="Clear search"><X size={15} /></button>}
       </label>
-      <button className="icon-button topbar-icon" aria-label="Notifications"><Bell size={19} /><span className="notification-dot" /></button>
+      <button className="icon-button topbar-icon" aria-label={`Notifications${unreadNotifications ? `, ${unreadNotifications} unread` : ""}`} onClick={onOpenNotifications}><Bell size={19} />{unreadNotifications > 0 && <span className="notification-dot" />}</button>
       <button className="icon-button topbar-icon help-button" aria-label="Help"><CircleHelp size={19} /></button>
     </header>
   );
 }
 
+function NotificationsPanel({ user, onClose, onNavigateToRequests, onUnreadChange }: {
+  user: User;
+  onClose: () => void;
+  onNavigateToRequests: () => void;
+  onUnreadChange: (count: number) => void;
+}) {
+  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(!user.demoMode);
+  const [error, setError] = useState("");
+
+  const load = useCallback(() => {
+    if (user.demoMode) return;
+    api.notifications()
+      .then((summary) => {
+        setItems(summary.results);
+        onUnreadChange(summary.unreadCount);
+        setError("");
+      })
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Notifications could not be loaded."))
+      .finally(() => setLoading(false));
+  }, [user.demoMode, onUnreadChange]);
+
+  useEffect(() => {
+    if (user.demoMode) return;
+    load();
+    const timer = window.setInterval(load, 30000);
+    return () => window.clearInterval(timer);
+  }, [load, user.demoMode]);
+
+  const markRead = async () => {
+    if (user.demoMode) return;
+    try {
+      await api.markNotificationsRead();
+      onUnreadChange(0);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Notifications could not be marked read.");
+    }
+  };
+
+  return <div className="notification-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notifications-title">
+      <header className="notification-header"><div><h2 id="notifications-title">Notifications</h2><p>Request alerts and donor replies from your network</p></div><button className="icon-button" onClick={onClose} aria-label="Close notifications"><X size={18} /></button></header>
+      <div className="notification-actions"><span>{user.demoMode ? "Live database notifications require an API account." : "Updates every 30 seconds"}</span>{!user.demoMode && <button className="text-button" onClick={() => void markRead()}>Mark all read</button>}</div>
+      {loading ? <div className="notification-empty"><LoaderCircle className="spin" size={22} /> Loading notifications…</div>
+        : error ? <div className="notification-error"><p>{error}</p><button className="text-button" onClick={load}>Try again</button></div>
+          : user.demoMode ? <EmptyState title="Sign in for live notifications" description="Demo sessions are local and do not connect to database records." />
+            : items.length ? <div className="notification-list">{items.map((item) => <button className="notification-item" key={item.id} onClick={onNavigateToRequests}><span className="notification-item-icon">{item.type === "donor_response" ? <MessageSquareText size={17} /> : <Bell size={17} />}</span><span className="notification-item-copy"><strong>{item.title}</strong><span>{item.message}</span><small>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.createdAt))}</small></span></button>)}</div>
+              : <EmptyState title="You're all caught up" description="SMS dispatches and donor replies will appear here." />}
+    </section>
+  </div>;
+}
+
 function PageHeader({
   page,
   canRegisterDonor,
+  canCreateRequest,
   onCreateRequest,
   onCreateDonor,
 }: {
   page: Page;
   canRegisterDonor: boolean;
+  canCreateRequest: boolean;
   onCreateRequest: () => void;
   onCreateDonor: () => void;
 }) {
-  const details = pageDetails[page];
-  const action = page === "overview" || page === "requests"
+  const details = page === "overview" && canCreateRequest
+    ? { ...pageDetails.overview, title: "Hospital operations", description: "Create urgent blood requests and follow matching and donor responses." }
+    : page === "overview" && canRegisterDonor
+      ? { ...pageDetails.overview, title: "Donation drive operations", description: "Register screened donors and coordinate upcoming community drives." }
+      : page === "donors" && canRegisterDonor
+        ? { ...pageDetails.donors, title: "Donor register", description: "Register screened donors and keep consent and eligibility records up to date." }
+        : pageDetails[page];
+  const action = canCreateRequest && (page === "overview" || page === "requests")
     ? { label: "Create blood request", click: onCreateRequest }
     : page === "donors" && canRegisterDonor
       ? { label: "Register donor", click: onCreateDonor }
@@ -454,6 +559,7 @@ function PageContent({
   onNotice,
   requestCreateTrigger,
   donorCreateTrigger,
+  onNavigate,
 }: {
   page: Page;
   search: string;
@@ -461,15 +567,16 @@ function PageContent({
   onNotice: (notice: Notice) => void;
   requestCreateTrigger: number;
   donorCreateTrigger: number;
+  onNavigate: (page: Page) => void;
 }) {
-  if (page === "overview") return <Overview search={search} />;
+  if (page === "overview") return <Overview search={search} user={user} onNavigate={onNavigate} />;
   if (page === "donors") return <DonorsPage search={search} user={user} onNotice={onNotice} createTrigger={donorCreateTrigger} />;
-  if (page === "requests") return <RequestsPage search={search} onNotice={onNotice} createTrigger={requestCreateTrigger} />;
+  if (page === "requests") return <RequestsPage search={search} onNotice={onNotice} createTrigger={requestCreateTrigger} canCreate={user.role === "admin" || user.role === "hospital_staff"} />;
   if (page === "drives") return <DrivesPage search={search} />;
   return <ReportsPage />;
 }
 
-function Overview({ search }: { search: string }) {
+function Overview({ search, user, onNavigate }: { search: string; user: User; onNavigate: (page: Page) => void }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -490,7 +597,17 @@ function Overview({ search }: { search: string }) {
   if (loading) return <ContentLoading />;
   if (error || !summary) return <LoadError message={error} onRetry={load} />;
 
-  const metrics = [
+  const metrics = user.role === "hospital_staff" ? [
+    { label: "Requests in progress", value: summary.activeRequests, icon: FileBarChart2, tone: "amber", hint: "Across the network" },
+    { label: "Eligible donors", value: summary.eligibleDonors, icon: HeartPulse, tone: "green", hint: "Available to match" },
+    { label: "Donor register", value: summary.registeredDonors, icon: UsersRound, tone: "red", hint: "Screened network records" },
+    { label: "Units fulfilled", value: summary.livesSupported, icon: Droplet, tone: "blue", hint: "Recorded by the network" },
+  ] : user.role === "drive_staff" ? [
+    { label: "Registered donors", value: summary.registeredDonors, icon: UsersRound, tone: "red", hint: "People in the donor register" },
+    { label: "Eligible donors", value: summary.eligibleDonors, icon: HeartPulse, tone: "green", hint: "Currently eligible" },
+    { label: "Blood requests", value: summary.activeRequests, icon: FileBarChart2, tone: "amber", hint: "Active network needs" },
+    { label: "Units supported", value: summary.livesSupported, icon: Droplet, tone: "blue", hint: "Fulfilled across the network" },
+  ] : [
     { label: "Registered donors", value: summary.registeredDonors, icon: UsersRound, tone: "red", hint: "Screened and registered" },
     { label: "Eligible now", value: summary.eligibleDonors, icon: HeartPulse, tone: "green", hint: "Available to be contacted" },
     { label: "Active requests", value: summary.activeRequests, icon: FileBarChart2, tone: "amber", hint: "Awaiting fulfilment" },
@@ -523,13 +640,13 @@ function Overview({ search }: { search: string }) {
           </div>
           <div className="panel-footnote"><Activity size={15} /> Counts update from the donor register</div>
         </section>
-        <section className="panel operations-panel">
-          <PanelHeading title="Response workflow" subtitle="Keep urgent requests moving" />
-          <div className="workflow-step"><span className="workflow-number">01</span><div><strong>Request received</strong><p>Hospital shares group, units, area, and urgency.</p></div><CheckCircle2 size={18} /></div>
-          <div className="workflow-step"><span className="workflow-number">02</span><div><strong>Eligible donors matched</strong><p>Only compatible, eligible, opted-in donors are included.</p></div><CheckCircle2 size={18} /></div>
+        {user.role === "drive_staff" ? <UpcomingDrivesPreview onOpen={() => onNavigate("drives")} /> : <section className="panel operations-panel">
+          <PanelHeading title={user.role === "hospital_staff" ? "Hospital request workflow" : "Response workflow"} subtitle={user.role === "hospital_staff" ? "Track each request through donor response" : "Keep urgent requests moving"} />
+          <div className="workflow-step"><span className="workflow-number">01</span><div><strong>{user.role === "hospital_staff" ? "Create a blood request" : "Request received"}</strong><p>Share group, units, area, and urgency.</p></div><CheckCircle2 size={18} /></div>
+          <div className="workflow-step"><span className="workflow-number">02</span><div><strong>Eligible donors matched</strong><p>Compatible, eligible, opted-in donors are included.</p></div><CheckCircle2 size={18} /></div>
           <div className="workflow-step"><span className="workflow-number workflow-number-active">03</span><div><strong>SMS sent and responses tracked</strong><p>Donors reply YES, NO, or STOP to the alert.</p></div><Clock3 size={18} /></div>
           <div className="sms-note"><Bell size={16} /><span>SMS alerts are sent through the configured backend provider when a request is dispatched.</span></div>
-        </section>
+        </section>}
       </div>
       <section className="panel recent-panel">
         <PanelHeading title="Recent requests" subtitle="Latest activity across your network" />
@@ -537,6 +654,17 @@ function Overview({ search }: { search: string }) {
       </section>
     </>
   );
+}
+
+function UpcomingDrivesPreview({ onOpen }: { onOpen: () => void }) {
+  const [drives, setDrives] = useState<DonationDrive[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api.drives({ status: "scheduled" }).then((result) => setDrives(result.results.slice(0, 3))).catch(() => setDrives([])).finally(() => setLoading(false));
+  }, []);
+  return <section className="panel operations-panel"><div className="panel-heading"><div><h2>Upcoming drives</h2><p>Prepare donor registration for scheduled events</p></div><button className="text-button" onClick={onOpen}>View all</button></div>
+    {loading ? <ContentLoading /> : drives.length ? drives.map((drive) => <div className="workflow-step" key={drive.id}><span className="workflow-number"><CalendarDays size={14} /></span><div><strong>{drive.name}</strong><p>{drive.venue} · {formatDate(drive.startsAt)}</p></div><span className="drive-count">{drive.registeredDonors}</span></div>) : <EmptyState title="No scheduled drives" description="Scheduled donation drives will appear here." />}
+  </section>;
 }
 
 function DonorsPage({ search, user, onNotice, createTrigger }: { search: string; user: User; onNotice: (notice: Notice) => void; createTrigger: number }) {
@@ -548,9 +676,6 @@ function DonorsPage({ search, user, onNotice, createTrigger }: { search: string;
   const [areaFilter, setAreaFilter] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [candidates, setCandidates] = useState<Pick<Donor, "id" | "fullName" | "phoneNumber" | "location" | "bloodGroup">[]>([]);
-  const [candidateLoading, setCandidateLoading] = useState(false);
-  const [candidateError, setCandidateError] = useState("");
   const canRegister = user.role === "admin" || user.role === "drive_staff";
 
   const load = useCallback(() => {
@@ -633,7 +758,7 @@ function DonorsPage({ search, user, onNotice, createTrigger }: { search: string;
   );
 }
 
-function RequestsPage({ search, onNotice, createTrigger }: { search: string; onNotice: (notice: Notice) => void; createTrigger: number }) {
+function RequestsPage({ search, onNotice, createTrigger, canCreate }: { search: string; onNotice: (notice: Notice) => void; createTrigger: number; canCreate: boolean }) {
   const [requests, setRequests] = useState<BloodRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -641,6 +766,9 @@ function RequestsPage({ search, onNotice, createTrigger }: { search: string; onN
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<BloodRequest | null>(null);
   const [saving, setSaving] = useState(false);
+  const [candidates, setCandidates] = useState<Pick<Donor, "id" | "fullName" | "phoneNumber" | "location" | "bloodGroup">[]>([]);
+  const [candidateLoading, setCandidateLoading] = useState(false);
+  const [candidateError, setCandidateError] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -656,8 +784,19 @@ function RequestsPage({ search, onNotice, createTrigger }: { search: string; onN
   useEffect(load, [load]);
 
   useEffect(() => {
-    if (createTrigger > 0) setCreateOpen(true);
-  }, [createTrigger]);
+    if (createTrigger > 0 && canCreate) setCreateOpen(true);
+  }, [createTrigger, canCreate]);
+
+  useEffect(() => {
+    const openRequest = (event: Event) => {
+      const requestId = (event as CustomEvent<string>).detail;
+      const request = requests.find((item) => item.id === requestId);
+      if (request) setSelected(request);
+      else load();
+    };
+    window.addEventListener("damulink:open-request", openRequest);
+    return () => window.removeEventListener("damulink:open-request", openRequest);
+  }, [requests, load]);
 
   const loadCandidates = async (bloodGroup: string, area: string) => {
     if (!bloodGroup) { setCandidates([]); return; }
@@ -739,7 +878,7 @@ function RequestsPage({ search, onNotice, createTrigger }: { search: string; onN
           <div><h2>Request register</h2><p>Review matches, SMS delivery, and donor replies</p></div>
           <div className="filter-controls">
             <label className="select-wrap"><SlidersHorizontal size={15} /><select aria-label="Filter requests by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All statuses</option><option value="open">Open</option><option value="notified">Notified</option><option value="partially_fulfilled">Partially fulfilled</option><option value="fulfilled">Fulfilled</option><option value="cancelled">Cancelled</option></select><ChevronDown size={14} /></label>
-            <button className="button button-dark" onClick={() => setCreateOpen(true)}><Plus size={17} /> New request</button>
+            {canCreate && <button className="button button-dark" onClick={() => setCreateOpen(true)}><Plus size={17} /> New request</button>}
           </div>
         </div>
         {loading ? <ContentLoading /> : error ? <LoadError message={error} onRetry={load} /> : requests.length ? <RequestTable requests={requests} onSelect={setSelected} /> : <EmptyState title="No blood requests" description={search || statusFilter ? "No requests match the selected search or status." : "Create a request to find compatible, eligible donors and notify them by SMS."} />}

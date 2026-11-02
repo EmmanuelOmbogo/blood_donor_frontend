@@ -86,6 +86,22 @@ export interface DashboardSummary {
   recentRequests: BloodRequest[];
 }
 
+export interface NotificationItem {
+  id: string;
+  type: "request_dispatched" | "donor_response";
+  title: string;
+  message: string;
+  createdAt: string;
+  requestId: string;
+  reference: string;
+}
+
+export interface NotificationSummary {
+  results: NotificationItem[];
+  unreadCount: number;
+  readThrough: string | null;
+}
+
 export interface ApiError {
   message: string;
   code?: string;

@@ -5,6 +5,7 @@ import type {
   DonationDrive,
   Donor,
   PageResult,
+  NotificationSummary,
   User,
 } from "./types";
 
@@ -168,7 +169,7 @@ export const api = {
       localStorage.setItem(TOKEN_KEY, result.access);
       return result.user;
     } catch (error) {
-      if (error instanceof ApiRequestError && error.status === 0 && DEMO_AUTH_ENABLED) {
+      if (error instanceof ApiRequestError && (error.status === 0 || error.status === 401) && DEMO_AUTH_ENABLED) {
         const demoUser = demoAuth.authenticate(email.trim().toLowerCase(), password);
 
         if (demoUser) {
@@ -177,9 +178,11 @@ export const api = {
           return demoUser;
         }
 
-        throw new ApiRequestError(401, {
-          message: "The API is offline. Choose one of the development demo accounts below.",
-        });
+        if (error.status === 0) {
+          throw new ApiRequestError(401, {
+            message: "The API is offline. Choose one of the development demo accounts below.",
+          });
+        }
       }
 
       throw error;
@@ -197,6 +200,14 @@ export const api = {
 
   dashboard(): Promise<DashboardSummary> {
     return request<DashboardSummary>("/dashboard/summary");
+  },
+
+  notifications(): Promise<NotificationSummary> {
+    return request<NotificationSummary>("/notifications");
+  },
+
+  markNotificationsRead(): Promise<{ readThrough: string; unreadCount: number }> {
+    return request("/notifications", { method: "POST", body: JSON.stringify({}) });
   },
 
   donors(params: { search?: string; bloodGroup?: string; area?: string; page?: number }): Promise<PageResult<Donor>> {
